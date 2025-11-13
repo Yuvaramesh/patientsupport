@@ -1,3 +1,4 @@
+// lib/types.ts
 import type { ObjectId } from "mongodb";
 
 export interface ChatMessage {
@@ -34,7 +35,7 @@ export interface Patient {
 export interface Communication {
   _id?: ObjectId;
   patientId: string;
-  type: "clinical" | "genetic" | "generic" | "emergency";
+  type: "clinical" | "personal" | "generic" | "emergency";
   question: string;
   answer: string;
   severity?: string;

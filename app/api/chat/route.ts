@@ -1,3 +1,4 @@
+// app/api/chat/route.ts
 import { type NextRequest, NextResponse } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
@@ -5,7 +6,7 @@ import {
   extractSeverity,
   clinicalAgent,
   emergencyProtocol,
-  geneticAgent,
+  personalAgent,
   faqAgent,
 } from "@/lib/agents";
 import {
@@ -117,21 +118,16 @@ export async function POST(request: NextRequest) {
           { $set: { emailSent: true } }
         );
       }
-    } else if (agentType === "genetic") {
-      const genetic = await geneticAgent(state);
-      response = genetic;
+    } else if (agentType === "personal") {
+      const personal = await personalAgent(state);
+      response = personal;
 
       await commsCollection.insertOne({
         patientId,
-        type: "genetic",
+        type: "personal",
         question: query,
-        answer: genetic.answer,
-        status: genetic.shouldEscalateToProfessional
-          ? "in_progress"
-          : "completed",
-        assignedTo: genetic.shouldEscalateToProfessional
-          ? genetic.recommendedSpecialist
-          : undefined,
+        answer: personal.answer,
+        status: "completed",
         createdAt: new Date(),
         updatedAt: new Date(),
         emailSent: false,

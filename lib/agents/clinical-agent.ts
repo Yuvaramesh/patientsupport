@@ -1,5 +1,7 @@
+// lib/agents/clinical-agent.ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { ChatState } from "../types";
+import { retryWithBackoff } from "../retry-utility";
 
 const genai = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY!);
 const model = genai.getGenerativeModel({ model: "gemini-2.5-flash" });
@@ -7,7 +9,7 @@ const model = genai.getGenerativeModel({ model: "gemini-2.5-flash" });
 export async function clinicalAgent(state: ChatState): Promise<{
   answer: string;
   followUpQuestions?: string[];
-  severity: string;
+  severity: "low" | "medium" | "high" | "critical";
 }> {
   const prompt = `You are a clinical healthcare assistant. Help the patient with their medical query.
 
@@ -23,29 +25,71 @@ Provide:
 Format your response as:
 RESPONSE: [your response]
 FOLLOW_UP: [question1], [question2], [question3] or NONE
-SEVERITY: [low/medium/high]`;
+SEVERITY: [low/medium/high/critical]`;
 
-  const response = await model.generateContent(prompt);
-  const text = response.response.text();
+  try {
+    const response = await retryWithBackoff(
+      async () => {
+        return await model.generateContent(prompt);
+      },
+      3,
+      1000
+    );
 
-  const parseResponse = (text: string) => {
-    const responseMatch = text.match(/RESPONSE:\s*([\s\S]*?)(?=FOLLOW_UP:|$)/);
-    const followUpMatch = text.match(/FOLLOW_UP:\s*([\s\S]*?)(?=SEVERITY:|$)/);
-    const severityMatch = text.match(/SEVERITY:\s*(\w+)/);
+    const text = response.response.text();
 
-    const answer = responseMatch ? responseMatch[1].trim() : text;
-    const followUpText = followUpMatch ? followUpMatch[1].trim() : "";
-    const severity = severityMatch ? severityMatch[1].toLowerCase() : "medium";
+    const parseResponse = (
+      text: string
+    ): {
+      answer: string;
+      followUpQuestions?: string[];
+      severity: "low" | "medium" | "high" | "critical";
+    } => {
+      const responseMatch = text.match(
+        /RESPONSE:\s*([\s\S]*?)(?=FOLLOW_UP:|$)/
+      );
+      const followUpMatch = text.match(
+        /FOLLOW_UP:\s*([\s\S]*?)(?=SEVERITY:|$)/
+      );
+      const severityMatch = text.match(/SEVERITY:\s*(\w+)/);
 
-    const followUpQuestions =
-      followUpText && followUpText !== "NONE"
-        ? followUpText.split(",").map((q) => q.trim())
-        : undefined;
+      const answer = responseMatch ? responseMatch[1].trim() : text;
+      const followUpText = followUpMatch ? followUpMatch[1].trim() : "";
+      const severityText = severityMatch
+        ? severityMatch[1].toLowerCase()
+        : "medium";
 
-    return { answer, followUpQuestions, severity };
-  };
+      const followUpQuestions =
+        followUpText && followUpText !== "NONE"
+          ? followUpText.split(",").map((q) => q.trim())
+          : undefined;
 
-  return parseResponse(text);
+      // Type-safe severity handling
+      const validSeverities: Array<"low" | "medium" | "high" | "critical"> = [
+        "low",
+        "medium",
+        "high",
+        "critical",
+      ];
+      const severity: "low" | "medium" | "high" | "critical" =
+        validSeverities.includes(severityText as any)
+          ? (severityText as "low" | "medium" | "high" | "critical")
+          : "medium";
+
+      return { answer, followUpQuestions, severity };
+    };
+
+    return parseResponse(text);
+  } catch (error) {
+    console.error("Clinical agent error after retries:", error);
+
+    // Fallback response
+    return {
+      answer:
+        "I'm currently experiencing technical difficulties connecting to the AI service. For immediate health concerns, please contact your healthcare provider or call emergency services if urgent. I'll be back online shortly to assist you.",
+      severity: "medium",
+    };
+  }
 }
 
 export async function emergencyProtocol(state: ChatState): Promise<{
