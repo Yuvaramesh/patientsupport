@@ -64,18 +64,22 @@ export async function personalAgent(state: ChatState): Promise<{
         })
         .join("\n");
 
-      const summaryPrompt = `You are a healthcare assistant. Generate a concise summary of the patient's conversation history.
+      const summaryPrompt = `You are a healthcare assistant. Generate a concise summary of the patient's entire conversation history in a SINGLE comprehensive paragraph.
 
 Conversation History:
 ${historyText}
 
-Provide:
-1. A brief overview of their main health concerns
-2. Topics discussed
-3. Any follow-ups or recommendations given
-4. Number of interactions
+Create ONE flowing paragraph that includes:
+- The patient's main health concerns and topics discussed
+- Key recommendations or advice provided
+- Any patterns or recurring issues
+- The total number of interactions (${conversationHistory.length})
 
-Keep the summary clear, empathetic, and organized.`;
+Requirements:
+- Write ONLY ONE paragraph (no bullet points, no numbered lists, no line breaks)
+- Keep it clear, empathetic, and conversational
+- Maximum 150-200 words
+- Flow naturally from one point to the next`;
 
       try {
         const response = await retryWithBackoff(
@@ -89,29 +93,28 @@ Keep the summary clear, empathetic, and organized.`;
         const summary = response.response.text();
 
         return {
-          answer: `Here's a summary of your conversation history:\n\n${summary}\n\n---\n\nYou have ${conversationHistory.length} recorded interactions. Would you like details about any specific conversation?`,
+          answer: `${summary}\n\nWould you like details about any specific conversation?`,
           needsEmail: false,
           conversationHistory: conversationHistory,
         };
       } catch (error) {
         console.error("Error generating summary:", error);
 
-        // Fallback: Return basic summary without AI
-        const basicSummary = conversationHistory
-          .slice(0, 5)
-          .map((comm, idx) => {
-            const date = new Date(comm.createdAt).toLocaleDateString();
-            return `${
-              idx + 1
-            }. **${date}** - ${comm.type.toUpperCase()}\n   Q: ${comm.question.substring(
-              0,
-              100
-            )}${comm.question.length > 100 ? "..." : ""}`;
-          })
-          .join("\n\n");
+        // Fallback: Return basic single paragraph summary
+        const topics = Array.from(
+          new Set(conversationHistory.map((c) => c.type))
+        ).join(", ");
+        const firstDate = new Date(
+          conversationHistory[conversationHistory.length - 1].createdAt
+        ).toLocaleDateString();
+        const lastDate = new Date(
+          conversationHistory[0].createdAt
+        ).toLocaleDateString();
+
+        const basicSummary = `You have ${conversationHistory.length} recorded interactions with our healthcare assistant spanning from ${firstDate} to ${lastDate}. Your conversations have covered topics including ${topics}, with various health-related questions and personalized guidance provided throughout. I'm currently experiencing technical difficulties generating a detailed AI summary, but your complete conversation history has been retrieved successfully.`;
 
         return {
-          answer: `Here are your recent conversations (${conversationHistory.length} total):\n\n${basicSummary}\n\n---\n\nI'm experiencing some technical difficulties generating a detailed summary. The data above shows your most recent interactions.`,
+          answer: `${basicSummary}\n\nWould you like details about any specific conversation?`,
           needsEmail: false,
           conversationHistory: conversationHistory,
         };
